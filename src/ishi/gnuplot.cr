@@ -375,6 +375,12 @@ module Ishi
           pointtype
         end
       end
+
+      macro ensure_iterable(*args)
+        {% for arg in args %}
+          \{% raise "{{arg}} must be Iterable, not {{arg.resolve}}" unless {{arg.id}} < Iterable %}
+        {% end %}
+      end
     end
 
     class PlotExp < Plot
@@ -414,7 +420,7 @@ module Ishi
     class PlotY(Y) < Plot
       @@styles = [:boxes, :lines, :points, :linespoints, :dots]
 
-      def initialize(@ydata : Indexable(Y),
+      def initialize(@ydata : Y,
                      @title : String? = nil, @style : Symbol | String | Nil = nil,
                      @format : String? = nil,
                      @dashtype : Array(Int32) | Int32 | String | Nil = nil,
@@ -427,6 +433,7 @@ module Ishi
                      **options
                     )
         super(options)
+        ensure_iterable(Y)
       end
 
       def inst
@@ -454,7 +461,7 @@ module Ishi
     class PlotXY(X, Y) < Plot
       @@styles = [:boxes, :lines, :points, :linespoints, :dots]
 
-      def initialize(@xdata : Indexable(X), @ydata : Indexable(Y),
+      def initialize(@xdata : X, @ydata : Y,
                      @title : String? = nil, @style : Symbol | String | Nil = nil,
                      @format : String? = nil,
                      @dashtype : Array(Int32) | Int32 | String | Nil = nil,
@@ -467,6 +474,7 @@ module Ishi
                      **options
                     )
         super(options)
+        ensure_iterable(X, Y)
       end
 
       def inst
@@ -494,7 +502,7 @@ module Ishi
     class PlotXYZ(X, Y, Z) < Plot
       @@styles = [:circles, :surface, :lines, :points, :dots]
 
-      def initialize(@xdata : Indexable(X), @ydata : Indexable(Y), @zdata : Indexable(Z),
+      def initialize(@xdata : X, @ydata : Y, @zdata : Z,
                      @title : String? = nil, @style : Symbol | String | Nil = nil,
                      @format : String? = nil,
                      @dashtype : Array(Int32) | Int32 | String | Nil = nil,
@@ -507,6 +515,7 @@ module Ishi
                      **options
                     )
         super(options)
+        ensure_iterable(X, Y, Z)
       end
 
       def inst
@@ -557,10 +566,28 @@ module Ishi
         end
       end
 
+      # TODO: Remove
+      # def data
+      #   Array(String).new.tap do |arr|
+      #     (0...@data.size).reverse_each do |i|
+      #       arr << @data[i].to_a.join(" ")
+      #     end
+      #     arr << "e"
+      #   end
+      # end
+
       def data
         Array(String).new.tap do |arr|
-          (0...@data.size).reverse_each do |i|
-            arr << @data[i].to_a.join(" ")
+          data = @data
+          if data.responds_to? :shape
+            rows = data.shape[0]
+          else
+            # Assume D is an Enumerable(Enumerable(T))
+            rows = data.size
+          end
+
+          (1..rows).each do |i|
+            arr << @data[-i].to_a.join(" ")
           end
           arr << "e"
         end

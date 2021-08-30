@@ -119,7 +119,7 @@ module Ishi
     # style. Supported styles include `:boxes`, `:lines`, `:points`,
     # `:linespoints` and `:dots`.
     #
-    def plot(ydata : Indexable(Y), format : String? = nil, *, title : String? = nil, style : Symbol = :lines, **options) forall Y
+    def plot(ydata : Iterable(Y), format : String? = nil, *, title : String? = nil, style : Symbol = :lines, **options) forall Y
       {% raise "type must be numeric" unless [Y].all? { |a| SUPPORTED.includes?(a.stringify) || a < Number } %}
       @charts.first.plot(Ishi::Gnuplot::PlotY.new(ydata, title, style, format, **options))
       self
@@ -131,7 +131,7 @@ module Ishi
     # style. Supported styles include `:boxes`, `:lines`, `:points`,
     # `:linespoints` and `:dots`.
     #
-    def plot(xdata : Indexable(M), ydata : Indexable(N), format : String? = nil, *, title : String? = nil, style : Symbol = :points, **options) forall M, N
+    def plot(xdata : Iterable(M), ydata : Iterable(N), format : String? = nil, *, title : String? = nil, style : Symbol = :points, **options) forall M, N
       {% raise "type must be numeric" unless [M, N].all? { |a| SUPPORTED.includes?(a.stringify) || a < Number } %}
       @charts.first.plot(Ishi::Gnuplot::PlotXY.new(xdata, ydata, title, style, format, **options))
       self
@@ -143,7 +143,7 @@ module Ishi
     # style. Supported styles include `:surface`, `:circles`,
     # `:lines`, `:points` and `:dots`.
     #
-    def plot(xdata : Indexable(T), ydata : Indexable(U), zdata : Indexable(V), format : String? = nil, *, title : String? = nil, style : Symbol = :points, **options) forall T, U, V
+    def plot(xdata : Iterable(T), ydata : Iterable(U), zdata : Iterable(V), format : String? = nil, *, title : String? = nil, style : Symbol = :points, **options) forall T, U, V
       {% raise "type must be numeric" unless [T, U, V].all? { |a| SUPPORTED.includes?(a.stringify) || a < Number } %}
       @charts.first.plot(Ishi::Gnuplot::PlotXYZ.new(xdata, ydata, zdata, title, style, format, **options))
       self
@@ -153,7 +153,7 @@ module Ishi
     #
     # *title* is the title of the plot.
     #
-    def scatter(xdata : Indexable(M), ydata : Indexable(N), format : String? = nil, *, title : String? = nil, style : Symbol = :dots, **options) forall M, N
+    def scatter(xdata : Iterable(M), ydata : Iterable(N), format : String? = nil, *, title : String? = nil, style : Symbol = :dots, **options) forall M, N
       {% raise "type must be numeric" unless [M, N].all? { |a| SUPPORTED.includes?(a.stringify) || a < Number } %}
       @charts.first.plot(Ishi::Gnuplot::PlotXY.new(xdata, ydata, title, style, format, **options))
       self
@@ -163,7 +163,7 @@ module Ishi
     #
     # *title* is the title of the plot.
     #
-    def scatter(xdata : Indexable(T), ydata : Indexable(U), zdata : Indexable(V), format : String? = nil, *, title : String? = nil, style : Symbol = :dots, **options) forall T, U, V
+    def scatter(xdata : Iterable(T), ydata : Iterable(U), zdata : Iterable(V), format : String? = nil, *, title : String? = nil, style : Symbol = :dots, **options) forall T, U, V
       {% raise "type must be numeric" unless [T, U, V].all? { |a| SUPPORTED.includes?(a.stringify) || a < Number } %}
       @charts.first.plot(Ishi::Gnuplot::PlotXYZ.new(xdata, ydata, zdata, title, style, format, **options))
       self
@@ -175,8 +175,13 @@ module Ishi
     #
     # Data is visualized using a colormap.
     #
-    def imshow(data : Indexable(Indexable(D)), **options) forall D
+    def imshow(data : Iterable(Iterable(D)), **options) forall D
       {% raise "type must be numeric" unless [D].all? { |a| SUPPORTED.includes?(a.stringify) || a < Number } %}
+      @charts.first.plot(Ishi::Gnuplot::Plot2D.new(data, **options.merge({style: :image})))
+      self
+    end
+
+    def imshow(data, **options)
       @charts.first.plot(Ishi::Gnuplot::Plot2D.new(data, **options.merge({style: :image})))
       self
     end
