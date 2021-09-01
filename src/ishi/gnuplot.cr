@@ -541,7 +541,20 @@ module Ishi
     end
 
     class Plot2D(D) < Plot
-      @@styles = [:image, :lines, :points]
+      @@styles = [:image, :rgbimage, :rgbalpha, :lines, :points]
+
+      FORMAT_STRINGS = {
+        Int8 => "%int8",
+        Int16 => "%int16",
+        Int32 => "%int32",
+        Int64 => "%int64",
+        UInt8 => "%uint8",
+        UInt16 => "%uint16",
+        UInt32 => "%uint32",
+        UInt64 => "%uint64",
+        Float32 => "%float32",
+        Float64 => "%float64"
+      }
 
       def initialize(@data : D,
                      @title : String? = nil, @style : Symbol | String | Nil = nil,
@@ -558,13 +571,35 @@ module Ishi
         super(options)
       end
 
+      private def has_color?
+        {/rgbimage/i, /rgbalpha/i}.any? &.match(@style.to_s)
+      end
+
+      protected def self.scalar_type(data)
+        typeof(data.each.to_a.first)
+      end
+
+      protected def self.scalar_bytesize(data)
+        sizeof(typeof(data.each.to_a.first))
+      end
+
       def inst
         String.build do |io|
-          io << "'-' matrix"
+          if has_color?
+            if fmt = FORMAT_STRINGS[Plot2D.scalar_type(@data)]
+              io << "'-' binary array=(#{@data.shape[1]}, #{@data.shape[0]}) format='#{fmt}'"
+            else
+              raise ArgumentError.new
+            end
+          else
+            io << "'-' matrix"
+          end
+          
           io << " title '#{@title}'" if @title
           io << " #{@style}" if @style
         end
       end
+
 
       # TODO: Remove
       # def data
@@ -576,25 +611,71 @@ module Ishi
       #   end
       # end
 
-      def data
-        Array(String).new.tap do |arr|
-          data = @data
-          if data.responds_to? :shape
-            rows = data.shape[0]
-          else
-            # Assume D is an Enumerable(Enumerable(T))
-            rows = data.size
-          end
 
-          (1..rows).each do |i|
-            arr << @data[-i].to_a.join(" ")
+      protected def self.data_string(data : D, color : Bool) forall D
+        if color
+          # The only way I know of to make gnuplot display an rgbimage is to provide
+          # a string containing a raw lexicographic data buffer, typecast to a String.
+
+          {% if D.name(generic_args: false) == "Phase::NArray" %}
+            # ^^^ Note that we're using the name, not Phase::NArray, both
+            # because we don't care about the generic type (Phase::NArray(Int32) != Phase::NArray)
+            pixel_count = data.shape[0] * data.shape[1]
+            channel_count = data.shape[2]
+            byte_count = pixel_count * channel_count * Plot2D.scalar_bytesize(data)
+            data_ptr = data.@buffer.to_unsafe.unsafe_as(Pointer(UInt8))
+            data_str = String.new(data_ptr, byte_count)
+
+            [data_str, "e"]
+          {% elsif false && @top_level.has_constant?("Phase") && Phase.has_constant?("MultiIndexable") && D < Phase::MultiIndexable %}
+            # ^^^ need all the constant checks because we want this code to compile, even if Phase isn't present.
+            data_string(data.to_narr, color)
+          {% else %}
+            # This branch is unrealistic - it assumes that data is lexicographic with shape [height, width, color channels].
+            # I should do this with a lot more casework to make it more robust to different input types.
+            all_data = data.each.to_a
+
+            2.times do
+              if all_data.first.responds_to? :each
+                all_data = all_data.each.to_a
+            end
+
+            el_bytesize = sizeof(typeof(all_data.first))
+            el_count = all_data.size
+            byte_count = el_bytesize * el_count
+            data_ptr = all_data.to_unsafe.unsafe_as(Pointer(UInt8))
+            data_str = String.new(data_ptr, byte_count)
+
+            [data_str, "e"]
+          {% end %}
+        else
+          Array(String).new.tap do |arr|
+            if data.responds_to? :shape
+              rows = data.shape[0]
+            else
+              # Assume D is an Enumerable(Enumerable(T))
+              rows = data.size
+            end
+  
+            (1..rows).each do |i|
+              arr << data[-i].to_a.join(" ")
+            end
+            arr << "e"
           end
-          arr << "e"
         end
       end
 
+      def data
+        Plot2D.data_string(@data, has_color?)
+      end
+
       def dim
-        @style =~ /image/ ? 2 : 3
+        style_str = @style.to_s
+        if {/image/, /rgb/}.any? &.match(style_str)
+          2
+        else
+          3
+        end
       end
     end
 

@@ -182,7 +182,7 @@ module Ishi
     end
 
     def imshow(data, **options)
-      @charts.first.plot(Ishi::Gnuplot::Plot2D.new(data, **options.merge({style: :image})))
+      @charts.first.plot(Ishi::Gnuplot::Plot2D.new(data, **{style: :image}.merge(options)))
       self
     end
 
