@@ -563,6 +563,12 @@ module Ishi
                      **options)
         ensure_type_valid
 
+        if_stumpy do
+          if @style != :rgbalpha
+            raise ArgumentError.new("#{D} could not be plotted with style #{@style} - only the rgbalpha style is supported for Stumpy libraries.")
+          end
+        end
+
         super(options)
       end
 
@@ -575,7 +581,7 @@ module Ishi
           io << " #{@style}" if @style
         end
       rescue ex : KeyError
-        raise ArgumentError.new "unrecognized scalar type" # TODO
+        raise ArgumentError.new "The scalars stored in #{D} (which seem to be #{typeof(data_buffer[0])}) are not recognized. Currently, only integers or floats can be plotted as images." # TODO
       end
 
       def data
@@ -586,20 +592,10 @@ module Ishi
         2
       end
 
-      # Executes the block if and only if @data is a Phase::MultiIndexable, while making the compiler
-      # aware of that type restriction.
-      private macro if_phase(&block)
-        {% if @top_level.has_constant?("Phase") && D < Phase::MultiIndexable %}
-          if @data.is_a? Phase::MultiIndexable
-            {{ block.body }}
-          end
-        {% end %}
-      end
-
       # Executes the block if and only if @data is a MXNet::NDArray, while making the compiler
       # aware of that type restriction.
       private macro if_mxnet(&block)
-        {% if @top_level.has_constant?("MXNet") && D < MXNet::NDArray %}
+        {% if @top_level.has_constant?("MXNet") && D <= MXNet::NDArray %}
           if @data.is_a? MXNet::NDArray
             {{ block.body }}
           end
@@ -609,18 +605,31 @@ module Ishi
       # Executes the block if and only if @data is a StumpyCore::Canvas, while making the compiler
       # aware of that type restriction.
       private macro if_stumpy(&block)
-        {% if @top_level.has_constant?("StumpyCore") && D < StumpyCore::Canvas %}
+        {% if @top_level.has_constant?("StumpyCore") && D <= StumpyCore::Canvas %}
           if @data.is_a? StumpyCore::Canvas
             {{ block.body }}
           end
         {% end %}
       end
 
+      # Executes the block if @data is a Phase::MultiIndexable but not a StumpyCore::Canvas,
+      # while making the compiler aware of that type restriction. StumpyCore is relevant here
+      # because Phase offers a compatibility patch that turns Canvas into a MultiIndexable.
+      private macro if_phase(&block)
+        {% if @top_level.has_constant?("Phase") && D <= Phase::MultiIndexable %}
+          {% unless @top_level.has_constant?("StumpyCore") && D <= StumpyCore::Canvas %}
+            if @data.is_a? Phase::MultiIndexable
+              {{ block.body }}
+            end
+          {% end %}
+        {% end %}
+      end
+
       # Executes the block if and only if none of the other N-dimensional types apply.
       private macro if_not_restricted(&block)
-        {% unless @top_level.has_constant?("MXNet") && D < MXNet::NDArray %}
-          {% unless @top_level.has_constant?("Phase") && D < Phase::MultiIndexable %}
-            {% unless @top_level.has_constant?("StumpyCore") && D < StumpyCore::Canvas %}
+        {% unless @top_level.has_constant?("MXNet") && D <= MXNet::NDArray %}
+          {% unless @top_level.has_constant?("Phase") && D <= Phase::MultiIndexable %}
+            {% unless @top_level.has_constant?("StumpyCore") && D <= StumpyCore::Canvas %}
               {{ block.body }}
             {% end %}
           {% end %}
@@ -644,16 +653,23 @@ module Ishi
         {% end %}
       end
 
+      private def ensure_shape_valid
+        if_not_restricted do
+          # TODO
+          return
+        end
+      end
+
       protected def size
         data = @data
 
-        if data.responds_to?(:shape)
-          # MXNet::NDArray, Phase::MultiIndexable
-          shape = data.shape
-          {shape[1], shape[0]}
-        elsif data.responds_to?(:height) && data.responds_to?(:width)
+        if data.responds_to?(:width) && data.responds_to?(:height)
           # StumpyCore::Canvas
           {data.width, data.height}
+        elsif data.responds_to?(:shape)
+          # MXNet::NDArray, Phase::MultiIndexable
+          shape = data.shape
+          {shape[0], shape[1]}
         else
           # Indexable(Indexable(T))
           {data[0].size, data.size}
@@ -672,24 +688,54 @@ module Ishi
         String.new(byte_pointer, byte_count)
       end
 
-      protected def data_buffer
+      private def mxnet_buffer
         if_mxnet do
           initial_shape = @data.shape
           buffer = @data.reshape([initial_shape.product]).to_a
           @data.reshape(initial_shape)
           return buffer
         end
+      end
 
+      private def stumpy_buffer
         if_stumpy do
+          width, height = size
           rgba_buffer = @data.pixels
-          value_buffer = rgba_buffer.to_unsafe.unsafe_as(Pointer(UInt16))
-          return Slice.new(value_buffer, rgba_buffer.size * 4)
-        end
+          value_count = rgba_buffer.size * 4
+    
+          # It's unsafe anyway, so we'll drop the Slice index checks too and just use a Pointer
+          colex_rgba_buffer = rgba_buffer.to_unsafe
+          lex_byte_buffer = Pointer(UInt8).malloc(value_count)
+          
+          width.times do |x|
+            reverse_y = height
+            height.times do |y|
+              reverse_y -= 1
+              source_idx = (x + width * reverse_y)
+              target_idx = 4 * (x + width * y)
 
-        if_phase do
-          return @data.to_narr.@buffer
+              rgba = colex_rgba_buffer[source_idx]
+              lex_byte_buffer[target_idx + 0] = (rgba.r >> 8).to_u8
+              lex_byte_buffer[target_idx + 1] = (rgba.g >> 8).to_u8
+              lex_byte_buffer[target_idx + 2] = (rgba.b >> 8).to_u8
+              lex_byte_buffer[target_idx + 3] = (rgba.a >> 8).to_u8
+            end
+          end
+    
+          return Slice.new(lex_byte_buffer, value_count)
         end
+      end
 
+      private def phase_buffer
+        shape = @data.shape
+
+        Phase::NArray.build(shape[1], shape[0], shape[2]) do |coord|
+          row, col, channel = coord
+          @data.get(col, -row, channel)
+        end.@buffer
+      end
+
+      private def indexable_buffer
         if_not_restricted do
           width, height = size
           count = width * height
@@ -702,7 +748,7 @@ module Ishi
 
             buffer = Array(typeof(pixel[0])).new(count)
 
-            @data.each do |row|
+            @data.reverse_each do |row|
               row.each do |column|
                 column.unsafe_as(typeof(pixel)).each do |channel|
                   buffer << channel
@@ -723,6 +769,12 @@ module Ishi
 
             return buffer
           end
+        end
+      end
+
+      protected def data_buffer
+        if ret = mxnet_buffer || stumpy_buffer || phase_buffer || indexable_buffer
+          return ret
         end
 
         raise ArgumentError.new("BUG: Type #{D} was able to bypass compile-time type validity check. Please open an issue with replication instructions.")
@@ -767,51 +819,6 @@ module Ishi
         @style =~ /image/ ? 2 : 3
       end
     end
-
-    # # A two-dimensional plot. Note that the only accepted data types are Indexable(Indexable(T)),
-    # # MXNet::NDArray, Phase::MultiIndexable, and StumpyCore::Canvas.
-    # class Plot2D(D) < Plot
-    #   @@styles = [:image, :rgbimage, :rgbalpha, :lines, :points]
-
-    #   private def has_color?
-    #     {/rgbimage/i, /rgbalpha/i}.any? &.match(@style.to_s)
-    #   end
-
-    #   def inst
-    #     String.build do |io|
-    #       io << "'-' binary array=(#{@image_size.join(", ")}) format='#{Plot2D.format_string(@data)}'"
-    #       io << " title '#{@title}'" if @title
-    #       io << " #{@style}" if @style
-    #     end
-    #   rescue ex : KeyError
-    #     raise ArgumentError.new "unrecognized scalar type" # TODO
-    #   end
-
-    #   protected def self.buffer_string(data : Phase::NArray, color : Bool)
-    #     buffer = data.@buffer
-    #     byte_count = buffer.bytesize
-    #     data_ptr = buffer.to_unsafe.unsafe_as(Pointer(UInt8))
-
-    #     String.new(data_ptr, byte_count)
-    #   end
-
-    #   protected def self.buffer_string(data : Phase::MultiIndexable, color : Bool)
-    #     buffer_string(data.to_narr, color)
-    #   end
-
-    #   protected def self.buffer_string(data : Indexable(Indexable(T))) forall T
-    #     buffer = data.flatten.to_a
-
-    #     el_bytesize = sizeof(typeof(buffer.first))
-    #     byte_count = el_bytesize * buffer_size
-    #     data_ptr = buffer.to_unsafe.unsafe_as(Pointer(UInt8))
-    #     data_str = new(data_ptr, byte_count)
-    #   end
-
-    #   def data
-    #     [Plot2D.buffer_string(@data, has_color?), "e"]
-    #   end
-    # end
 
     @@debug : Bool = false
 
