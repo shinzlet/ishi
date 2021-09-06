@@ -86,9 +86,9 @@ module Ishi
       # Sets the margin.
       #
       def margin(
-           left : Float64 | Bool, right : Float64 | Bool,
-           top : Float64 | Bool, bottom : Float64 | Bool
-         )
+        left : Float64 | Bool, right : Float64 | Bool,
+        top : Float64 | Bool, bottom : Float64 | Bool
+      )
         @left = left if left
         @right = right if right
         @top = top if top
@@ -98,9 +98,9 @@ module Ishi
 
       # :ditto:
       def margin(
-           left : Int32 | Bool, right : Int32 | Bool,
-           top : Int32 | Bool, bottom : Int32 | Bool
-         )
+        left : Int32 | Bool, right : Int32 | Bool,
+        top : Int32 | Bool, bottom : Int32 | Bool
+      )
         @left = left if left
         @right = right if right
         @top = top if top
@@ -205,7 +205,6 @@ module Ishi
     end
 
     abstract class Plot
-
       abstract def inst
       abstract def data
       abstract def dim
@@ -256,7 +255,7 @@ module Ishi
         "m" => "magenta",
         "y" => "yellow",
         "k" => "black",
-        "w" => "white"
+        "w" => "white",
       }
 
       private POINT_TYPE_MAP = {
@@ -268,14 +267,14 @@ module Ishi
         "o" => 7,
         "^" => 9,
         "v" => 11,
-        "d" => 13
+        "d" => 13,
       }
 
       private DASH_TYPE_MAP = {
-        "-" => 1,
+        "-"  => 1,
         "--" => 2,
-        "!" => 9,
-        ":" => 3
+        "!"  => 9,
+        ":"  => 3,
       }
 
       private def parse_format
@@ -396,8 +395,7 @@ module Ishi
                      @linestyle : Int32? = nil,
                      @pointsize : Int32 | Float64 | Nil = nil,
                      @pointtype : Int32 | String | Nil = nil,
-                     **options
-                    )
+                     **options)
         super(options)
       end
 
@@ -430,8 +428,7 @@ module Ishi
                      @linestyle : Int32? = nil,
                      @pointsize : Int32 | Float64 | Nil = nil,
                      @pointtype : Int32 | String | Nil = nil,
-                     **options
-                    )
+                     **options)
         super(options)
         ensure_iterable(Y)
       end
@@ -471,8 +468,7 @@ module Ishi
                      @linestyle : Int32? = nil,
                      @pointsize : Int32 | Float64 | Nil = nil,
                      @pointtype : Int32 | String | Nil = nil,
-                     **options
-                    )
+                     **options)
         super(options)
         ensure_iterable(X, Y)
       end
@@ -512,8 +508,7 @@ module Ishi
                      @linestyle : Int32? = nil,
                      @pointsize : Int32 | Float64 | Nil = nil,
                      @pointtype : Int32 | String | Nil = nil,
-                     **options
-                    )
+                     **options)
         super(options)
         ensure_iterable(X, Y, Z)
       end
@@ -540,20 +535,19 @@ module Ishi
       end
     end
 
-    class Plot2D(D) < Plot
-      @@styles = [:image, :rgbimage, :rgbalpha, :lines, :points]
-
-      FORMAT_STRINGS = {
-        Int8 => "%int8",
-        Int16 => "%int16",
-        Int32 => "%int32",
-        Int64 => "%int64",
-        UInt8 => "%uint8",
-        UInt16 => "%uint16",
-        UInt32 => "%uint32",
-        UInt64 => "%uint64",
+    class PlotImage(D) < Plot
+      @@styles = [:image, :rgbimage, :rgbalpha]
+      @@scalar_types = {
+        Int8    => "%int8",
+        Int16   => "%int16",
+        Int32   => "%int32",
+        Int64   => "%int64",
+        UInt8   => "%uint8",
+        UInt16  => "%uint16",
+        UInt32  => "%uint32",
+        UInt64  => "%uint64",
         Float32 => "%float32",
-        Float64 => "%float64"
+        Float64 => "%float64",
       }
 
       def initialize(@data : D,
@@ -566,124 +560,264 @@ module Ishi
                      @linestyle : Int32? = nil,
                      @pointsize : Int32 | Float64 | Nil = nil,
                      @pointtype : Int32 | String | Nil = nil,
-                     **options
-                    )
+                     **options)
+        ensure_type_valid
+
         super(options)
-      end
-
-      private def has_color?
-        {/rgbimage/i, /rgbalpha/i}.any? &.match(@style.to_s)
-      end
-
-      protected def self.scalar_type(data)
-        typeof(data.each.to_a.first)
-      end
-
-      protected def self.scalar_bytesize(data)
-        sizeof(typeof(data.each.to_a.first))
       end
 
       def inst
         String.build do |io|
-          if has_color?
-            if fmt = FORMAT_STRINGS[Plot2D.scalar_type(@data)]
-              io << "'-' binary array=(#{@data.shape[1]}, #{@data.shape[0]}) format='#{fmt}'"
-            else
-              raise ArgumentError.new
-            end
-          else
-            io << "'-' matrix"
+          size_str = size.join(", ")
+
+          io << "'-' binary array=(#{size_str}) format='#{scalar_type}'"
+          io << " title '#{@title}'" if @title
+          io << " #{@style}" if @style
+        end
+      rescue ex : KeyError
+        raise ArgumentError.new "unrecognized scalar type" # TODO
+      end
+
+      def data
+        [data_string, "e"]
+      end
+
+      def dim
+        2
+      end
+
+      # Executes the block if and only if @data is a Phase::MultiIndexable, while making the compiler
+      # aware of that type restriction.
+      private macro if_phase(&block)
+        {% if @top_level.has_constant?("Phase") && D < Phase::MultiIndexable %}
+          if @data.is_a? Phase::MultiIndexable
+            {{ block.body }}
           end
-          
+        {% end %}
+      end
+
+      # Executes the block if and only if @data is a MXNet::NDArray, while making the compiler
+      # aware of that type restriction.
+      private macro if_mxnet(&block)
+        {% if @top_level.has_constant?("MXNet") && D < MXNet::NDArray %}
+          if @data.is_a? MXNet::NDArray
+            {{ block.body }}
+          end
+        {% end %}
+      end
+
+      # Executes the block if and only if @data is a StumpyCore::Canvas, while making the compiler
+      # aware of that type restriction.
+      private macro if_stumpy(&block)
+        {% if @top_level.has_constant?("StumpyCore") && D < StumpyCore::Canvas %}
+          if @data.is_a? StumpyCore::Canvas
+            {{ block.body }}
+          end
+        {% end %}
+      end
+
+      # Executes the block if and only if none of the other N-dimensional types apply.
+      private macro if_not_restricted(&block)
+        {% unless @top_level.has_constant?("MXNet") && D < MXNet::NDArray %}
+          {% unless @top_level.has_constant?("Phase") && D < Phase::MultiIndexable %}
+            {% unless @top_level.has_constant?("StumpyCore") && D < StumpyCore::Canvas %}
+              {{ block.body }}
+            {% end %}
+          {% end %}
+        {% end %}
+      end
+
+      private def ensure_type_valid
+        # Ensure that a supported data type is being used
+        if_not_restricted do
+          {% unless D < Indexable %}
+            {% raise "Cannot make an image plot from #{D} - only Indexable(Indexable(T)), MXNet::NDArray, Phase::MultiIndexable, and StumpyCore::Canvas are supported." %}
+          {% end %}
+        end
+
+        # Because we don't know T in Indexable(Indexable(T)), we need to check that
+        # @data is an Indexable(Indexable(T)) (not just an Indexable(T)) at runtime.
+        {% if D < Indexable %}
+          unless typeof(@data.first) < Indexable
+            raise "Cannot make a 2D plot from #{D}, which is Indexable but not Indexable(Indexable(T))."
+          end
+        {% end %}
+      end
+
+      protected def size
+        data = @data
+
+        if data.responds_to?(:shape)
+          # MXNet::NDArray, Phase::MultiIndexable
+          shape = data.shape
+          {shape[1], shape[0]}
+        elsif data.responds_to?(:height) && data.responds_to?(:width)
+          # StumpyCore::Canvas
+          {data.width, data.height}
+        else
+          # Indexable(Indexable(T))
+          {data[0].size, data.size}
+        end
+      end
+
+      protected def scalar_type
+        @@scalar_types[typeof(data_buffer[0])]
+      end
+
+      protected def data_string : String
+        buffer = data_buffer
+        el_size = sizeof(typeof(buffer[0]))
+        byte_count = el_size * buffer.size
+        byte_pointer = buffer.to_unsafe.unsafe_as(Pointer(UInt8))
+        String.new(byte_pointer, byte_count)
+      end
+
+      protected def data_buffer
+        if_mxnet do
+          initial_shape = @data.shape
+          buffer = @data.reshape([initial_shape.product]).to_a
+          @data.reshape(initial_shape)
+          return buffer
+        end
+
+        if_stumpy do
+          rgba_buffer = @data.pixels
+          value_buffer = rgba_buffer.to_unsafe.unsafe_as(Pointer(UInt16))
+          return Slice.new(value_buffer, rgba_buffer.size * 4)
+        end
+
+        if_phase do
+          return @data.to_narr.@buffer
+        end
+
+        if_not_restricted do
+          width, height = size
+          count = width * height
+          pixel = @data[0][0]
+
+          if pixel.is_a? Indexable
+            # if there is color data
+            channels = pixel.size
+            count *= channels
+
+            buffer = Array(typeof(pixel[0])).new(count)
+
+            @data.each do |row|
+              row.each do |column|
+                column.unsafe_as(typeof(pixel)).each do |channel|
+                  buffer << channel
+                end
+              end
+            end
+
+            return buffer
+          else
+            # if this is monochrome
+            buffer = Array(typeof(pixel)).new(count)
+
+            @data.each do |row|
+              row.each do |pixel|
+                buffer << pixel
+              end
+            end
+
+            return buffer
+          end
+        end
+
+        raise ArgumentError.new("BUG: Type #{D} was able to bypass compile-time type validity check. Please open an issue with replication instructions.")
+      end
+    end
+
+    class Plot2D(D) < Plot
+      @@styles = [:image, :lines, :points]
+
+      def initialize(@data : D,
+                     @title : String? = nil, @style : Symbol | String | Nil = nil,
+                     @format : String? = nil,
+                     @dashtype : Array(Int32) | Int32 | String | Nil = nil,
+                     @fillstyle : Int32 | Float64 | Nil = nil,
+                     @linecolor : String? = nil,
+                     @linewidth : Int32 | Float64 | Nil = nil,
+                     @linestyle : Int32? = nil,
+                     @pointsize : Int32 | Float64 | Nil = nil,
+                     @pointtype : Int32 | String | Nil = nil,
+                     **options)
+        super(options)
+      end
+
+      def inst
+        String.build do |io|
+          io << "'-' matrix"
           io << " title '#{@title}'" if @title
           io << " #{@style}" if @style
         end
       end
 
-
-      # TODO: Remove
-      # def data
-      #   Array(String).new.tap do |arr|
-      #     (0...@data.size).reverse_each do |i|
-      #       arr << @data[i].to_a.join(" ")
-      #     end
-      #     arr << "e"
-      #   end
-      # end
-
-
-      protected def self.data_string(data : D, color : Bool) forall D
-        if color
-          # The only way I know of to make gnuplot display an rgbimage is to provide
-          # a string containing a raw lexicographic data buffer, typecast to a String.
-
-          {% if D.name(generic_args: false) == "Phase::NArray" %}
-            # ^^^ Note that we're using the name, not Phase::NArray, both
-            # because we don't care about the generic type (Phase::NArray(Int32) != Phase::NArray)
-            pixel_count = data.shape[0] * data.shape[1]
-            channel_count = data.shape[2]
-            byte_count = pixel_count * channel_count * Plot2D.scalar_bytesize(data)
-            data_ptr = data.@buffer.to_unsafe.unsafe_as(Pointer(UInt8))
-            data_str = String.new(data_ptr, byte_count)
-
-            [data_str, "e"]
-          {% elsif false && @top_level.has_constant?("Phase") && Phase.has_constant?("MultiIndexable") && D < Phase::MultiIndexable %}
-            # ^^^ need all the constant checks because we want this code to compile, even if Phase isn't present.
-            data_string(data.to_narr, color)
-          {% else %}
-            # This branch is unrealistic - it assumes that data is lexicographic with shape [height, width, color channels].
-            # I should do this with a lot more casework to make it more robust to different input types.
-            all_data = data.each.to_a
-
-            2.times do
-              if all_data.first.responds_to? :each
-                all_data = all_data.each.to_a
-            end
-
-            el_bytesize = sizeof(typeof(all_data.first))
-            el_count = all_data.size
-            byte_count = el_bytesize * el_count
-            data_ptr = all_data.to_unsafe.unsafe_as(Pointer(UInt8))
-            data_str = String.new(data_ptr, byte_count)
-
-            [data_str, "e"]
-          {% end %}
-        else
-          Array(String).new.tap do |arr|
-            if data.responds_to? :shape
-              rows = data.shape[0]
-            else
-              # Assume D is an Enumerable(Enumerable(T))
-              rows = data.size
-            end
-  
-            (1..rows).each do |i|
-              arr << data[-i].to_a.join(" ")
-            end
-            arr << "e"
-          end
-        end
-      end
-
       def data
-        Plot2D.data_string(@data, has_color?)
+        Array(String).new.tap do |arr|
+          (0...@data.size).reverse_each do |i|
+            arr << @data[i].to_a.join(" ")
+          end
+          arr << "e"
+        end
       end
 
       def dim
-        style_str = @style.to_s
-        if {/image/, /rgb/}.any? &.match(style_str)
-          2
-        else
-          3
-        end
+        @style =~ /image/ ? 2 : 3
       end
     end
+
+    # # A two-dimensional plot. Note that the only accepted data types are Indexable(Indexable(T)),
+    # # MXNet::NDArray, Phase::MultiIndexable, and StumpyCore::Canvas.
+    # class Plot2D(D) < Plot
+    #   @@styles = [:image, :rgbimage, :rgbalpha, :lines, :points]
+
+    #   private def has_color?
+    #     {/rgbimage/i, /rgbalpha/i}.any? &.match(@style.to_s)
+    #   end
+
+    #   def inst
+    #     String.build do |io|
+    #       io << "'-' binary array=(#{@image_size.join(", ")}) format='#{Plot2D.format_string(@data)}'"
+    #       io << " title '#{@title}'" if @title
+    #       io << " #{@style}" if @style
+    #     end
+    #   rescue ex : KeyError
+    #     raise ArgumentError.new "unrecognized scalar type" # TODO
+    #   end
+
+    #   protected def self.buffer_string(data : Phase::NArray, color : Bool)
+    #     buffer = data.@buffer
+    #     byte_count = buffer.bytesize
+    #     data_ptr = buffer.to_unsafe.unsafe_as(Pointer(UInt8))
+
+    #     String.new(data_ptr, byte_count)
+    #   end
+
+    #   protected def self.buffer_string(data : Phase::MultiIndexable, color : Bool)
+    #     buffer_string(data.to_narr, color)
+    #   end
+
+    #   protected def self.buffer_string(data : Indexable(Indexable(T))) forall T
+    #     buffer = data.flatten.to_a
+
+    #     el_bytesize = sizeof(typeof(buffer.first))
+    #     byte_count = el_bytesize * buffer_size
+    #     data_ptr = buffer.to_unsafe.unsafe_as(Pointer(UInt8))
+    #     data_str = new(data_ptr, byte_count)
+    #   end
+
+    #   def data
+    #     [Plot2D.buffer_string(@data, has_color?), "e"]
+    #   end
+    # end
 
     @@debug : Bool = false
 
     # Creates a new instance of the gnuplot engine.
     #
-    def initialize(@term : Term, @prologue : Enumerable(String) = [] of String, @epilogue : Enumerable(String) = [] of String)
+    def initialize(@term : Term, @prologue : Indexable(String) = [] of String, @epilogue : Indexable(String) = [] of String)
     end
 
     # Shows the chart.
@@ -799,7 +933,7 @@ module Ishi
         commands << "unset xtics"
       end
       if labels = chart.xtics
-        label_point_pair = labels.map{ |k, v| "\"#{v}\" #{k}" }.join(", ")
+        label_point_pair = labels.map { |k, v| "\"#{v}\" #{k}" }.join(", ")
         commands << "set xtics (#{label_point_pair})"
       end
       if show = chart.show_ytics

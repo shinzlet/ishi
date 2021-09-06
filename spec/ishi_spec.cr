@@ -99,7 +99,7 @@ Spectator.describe Ishi do
     subject { described_class.new }
 
     it "displays an image" do
-      expect(subject.imshow([[1, 2], [3, 4]]).show).to have(/^plot .* matrix with image$/, "1 2", "3 4")
+      expect(subject.imshow([[1, 2], [3, 4]]).show).to have(/^plot .* binary array=\(2, 2\) format='%int32' with image$/, "\u0001\u0000\u0000\u0000\u0002\u0000\u0000\u0000\u0003\u0000\u0000\u0000\u0004\u0000\u0000\u0000")
     end
   end
 

@@ -176,13 +176,13 @@ module Ishi
     # Data is visualized using a colormap.
     #
     def imshow(data : Iterable(Iterable(D)), **options) forall D
-      {% raise "type must be numeric" unless [D].all? { |a| SUPPORTED.includes?(a.stringify) || a < Number } %}
-      @charts.first.plot(Ishi::Gnuplot::Plot2D.new(data, **options.merge({style: :image})))
+      # {% raise "type must be numeric" unless [D].all? { |a| SUPPORTED.includes?(a.stringify) || a < Number } %}
+      @charts.first.plot(Ishi::Gnuplot::PlotImage.new(data, **{style: :image}.merge(options)))
       self
     end
 
     def imshow(data, **options)
-      @charts.first.plot(Ishi::Gnuplot::Plot2D.new(data, **{style: :image}.merge(options)))
+      @charts.first.plot(Ishi::Gnuplot::PlotImage.new(data, **{style: :image}.merge(options)))
       self
     end
 
