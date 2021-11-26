@@ -562,7 +562,7 @@ module Ishi
                      @pointtype : Int32 | String | Nil = nil,
                      **options)
         ensure_type_valid
-
+        
         if_stumpy do
           if @style != :rgbalpha
             raise ArgumentError.new("#{D} could not be plotted with style #{@style} - only the rgbalpha style is supported for Stumpy libraries.")
@@ -727,12 +727,22 @@ module Ishi
       end
 
       private def phase_buffer
+        # OPTIMIZE: Detect NArray to use its buffer more directly, try to read sequentially
         shape = @data.shape
 
-        Phase::NArray.build(shape[1], shape[0], shape[2]) do |coord|
-          row, col, channel = coord
-          @data.get(col, -row, channel)
-        end.@buffer
+        if @style =~ /rgb/
+          narr = Phase::NArray.build(shape[1], shape[0], shape[2]) do |coord|
+            row, col, channel = coord
+            @data.unsafe_fetch_element([col, shape[1] - row, channel])
+          end
+        else
+          narr = Phase::NArray.build(shape[1], shape[0]) do |coord|
+            row, col = coord
+            @data.unsafe_fetch_element([col, shape[1] - row])
+          end
+        end
+
+        narr.@buffer
       end
 
       private def indexable_buffer
@@ -777,7 +787,7 @@ module Ishi
           return ret
         end
 
-        raise ArgumentError.new("BUG: Type #{D} was able to bypass compile-time type validity check. Please open an issue with replication instructions.")
+        raise ArgumentError.new("BUG: Type #{D} was able to bypass compile-time type validity check. Please open an issue on StumpyCore with replication instructions.")
       end
     end
 
