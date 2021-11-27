@@ -727,22 +727,24 @@ module Ishi
       end
 
       private def phase_buffer
-        # OPTIMIZE: Detect NArray to use its buffer more directly, try to read sequentially
-        shape = @data.shape
+        if_phase do
+          # OPTIMIZE: Detect NArray to use its buffer more directly, try to read sequentially
+          shape = @data.shape
 
-        if @style =~ /rgb/
-          narr = Phase::NArray.build(shape[1], shape[0], shape[2]) do |coord|
-            row, col, channel = coord
-            @data.unsafe_fetch_element([col, shape[1] - row, channel])
+          if @style =~ /rgb/
+            narr = Phase::NArray.build(shape[1], shape[0], shape[2]) do |coord|
+              row, col, channel = coord
+              @data.unsafe_fetch_element([col, shape[1] - row, channel])
+            end
+          else
+            narr = Phase::NArray.build(shape[1], shape[0]) do |coord|
+              row, col = coord
+              @data.unsafe_fetch_element([col, shape[1] - row])
+            end
           end
-        else
-          narr = Phase::NArray.build(shape[1], shape[0]) do |coord|
-            row, col = coord
-            @data.unsafe_fetch_element([col, shape[1] - row])
-          end
+
+          narr.@buffer
         end
-
-        narr.@buffer
       end
 
       private def indexable_buffer
